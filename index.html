@@ -71,7 +71,7 @@
         .status { text-align: center; font-weight: 600; padding: 10px; border-radius: 6px; background: var(--accent-red); color: white; margin-bottom: 15px; font-size: 0.95rem; }
         .connected { background: var(--accent-green); }
         
-        /* Botón exclusivo para silenciar la alarma */
+        /* Botón exclusivo para silenciar la alama sonora del PC */
         .btn-mute-style {
             padding: 12px; 
             font-size: 1rem; 
@@ -95,9 +95,33 @@
         .controls { background: var(--bg-inner); padding: 20px; border-radius: 8px; text-align: center; display: flex; flex-direction: column; justify-content: space-between; }
         input[type=range] { width: 90%; accent-color: var(--accent-blue); cursor: pointer; margin-top: 10px; }
         
-        .btn-sos { padding: 12px; font-size: 1rem; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; color: white; width: 100%; transition: 0.2s; }
-        .btn-off { background-color: var(--bg-main); border: 1px solid var(--accent-blue); color: var(--accent-blue); }
-        .btn-on { background-color: var(--accent-red); }
+        /* BOTÓN DE CONTROL DEL VIBRADOR SOS */
+        .btn-sos { 
+            padding: 15px; 
+            font-size: 1.1rem; 
+            font-weight: bold; 
+            border: 2px solid transparent; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            width: 100%; 
+            transition: all 0.2s ease; 
+        }
+        .btn-off { 
+            background-color: var(--bg-main); 
+            border-color: var(--accent-blue); 
+            color: var(--accent-blue); 
+        }
+        .btn-off:hover {
+            background-color: rgba(14, 165, 233, 0.1);
+        }
+        .btn-on { 
+            background-color: var(--accent-red); 
+            color: white;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+        }
+        .btn-on:hover {
+            background-color: #dc2626;
+        }
 
         /* SECCIÓN INFERIOR: MAPA Y LOGS */
         .bottom-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -157,7 +181,10 @@
                     <input type="range" id="sliderUmbral" min="30" max="200" step="5" value="80">
                     <p style="margin: 5px 0 0 0; font-size: 0.9rem;">Activo a: <span id="txtUmbral" style="color:var(--accent-blue); font-weight:bold;">80</span> cm</p>
                 </div>
-                <button id="btnVibrador" class="btn-sos btn-off">Forzar Alerta (SOS)</button>
+                <div>
+                    <h3>Control de Alerta Física</h3>
+                    <button id="btnVibrador" class="btn-sos btn-off" onclick="toggleVibrador()">📳 FORZAR ALERTA (SOS)</button>
+                </div>
             </div>
         </div>
 
@@ -186,7 +213,6 @@
 </div>
 
 <script>
-    // CORREGIDO: URL segura con wss:// y puerto 8084 para que GitHub Pages lo acepte sin bloqueos
     const brokerUrl = 'wss://broker.emqx.io:8084/mqtt';
     const topicDistancia = 'sensor/ultrasonido/distancia';
     const topicVibrador  = 'sensor/vibrador/control';
@@ -202,6 +228,7 @@
     let alarmaInterval = null;
     let audioCtx = null;
     let alarmaSilenciada = false;
+    let estadoVibrador = false; // Estado global del vibrador (false = apagado, true = encendido)
 
     function iniciarRol(rol) {
         document.getElementById('view-selector').classList.add('hidden');
@@ -228,15 +255,16 @@
         document.getElementById('view-selector').classList.remove('hidden');
         
         alarmaSilenciada = false;
-        const btn = document.getElementById('btnMute');
-        btn.innerText = "Silenciar Sonido de Alerta 🔊";
-        btn.style.backgroundColor = "var(--bg-main)";
-        btn.style.borderColor = "var(--accent-red)";
-        btn.style.color = "var(--accent-red)";
+        estadoVibrador = false;
+        
+        const btnMute = document.getElementById('btnMute');
+        btnMute.innerText = "Silenciar Sonido de Alerta 🔊";
+        btnMute.style.backgroundColor = "var(--bg-main)";
+        btnMute.style.borderColor = "var(--accent-red)";
+        btnMute.style.color = "var(--accent-red)";
     }
 
     function configurarCuidador() {
-        let vibradorManual = false;
         let umbralActual = 80;
         let ultimoMensajeTiempo = Date.now();
 
@@ -321,13 +349,6 @@
             }
         });
 
-        document.getElementById('btnVibrador').addEventListener('click', () => {
-            vibradorManual = !vibradorManual;
-            client.publish(topicVibrador, vibradorManual ? "ON" : "OFF");
-            document.getElementById('btnVibrador').innerText = vibradorManual ? "Detener Alerta" : "Forzar Alerta (SOS)";
-            document.getElementById('btnVibrador').className = vibradorManual ? "btn-sos btn-on" : "btn-sos btn-off";
-        });
-
         watchdogInterval = setInterval(() => {
             if (Date.now() - ultimoMensajeTiempo > 7000) {
                 document.getElementById('status-text-panel').innerText = "ALERTA: DISPOSITIVO DESCONECTADO 🔴";
@@ -337,6 +358,26 @@
                 activarAlarmaSonora(true);
             }
         }, 2000);
+    }
+
+    // FUNCIÓN INTEGRADA PARA ACTIVAR / DETENER EL VIBRADOR EN LAS GAFAS
+    function toggleVibrador() {
+        if (!client || !client.connected) return;
+
+        estadoVibrador = !estadoVibrador; // Cambia el estado
+        const btn = document.getElementById('btnVibrador');
+
+        if (estadoVibrador) {
+            // Acción: Mandar a encender el vibrador físico
+            client.publish(topicVibrador, "ON");
+            btn.innerText = "🛑 DETENER VIBRADOR";
+            btn.className = "btn-sos btn-on";
+        } else {
+            // Acción: Mandar a apagar el vibrador físico
+            client.publish(topicVibrador, "OFF");
+            btn.innerText = "📳 FORZAR ALERTA (SOS)";
+            btn.className = "btn-sos btn-off";
+        }
     }
 
     function toggleSilencio() {
