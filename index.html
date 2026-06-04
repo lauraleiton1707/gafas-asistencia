@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Asistencia Visual - Panel de Control</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <style>
+        :root {
+            --bg-main: #0f172a;       /* Gris casi negro */
+            --bg-card: #1e293b;       /* Gris pizarra */
+            --bg-inner: #334155;      /* Gris medio */
+            --text-main: #f8fafc;     /* Blanco suave */
+            --text-muted: #94a3b8;    /* Gris texto secundario */
+            --accent-blue: #0ea5e9;   /* Azul cian tecnológico */
+            --accent-red: #ef4444;    /* Rojo sutil de alerta */
+            --accent-green: #10b981;  /* Verde de estado estable */
+        }
+
+        body { 
+            font-family: 'Segoe UI', system-ui, sans-serif; 
+            background-color: var(--bg-main); 
+            color: var(--text-main); 
+            margin: 0; 
+            padding: 20px; 
+            display: flex; 
+            justify-content: center; 
+        }
+        
+        .container { 
+            max-width: 1000px; 
+            width: 100%; 
+            background: var(--bg-card); 
+            padding: 30px; 
+            border-radius: 12px; 
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3); 
+            position: relative;
+        }
+        
+        h1 { text-align: center; margin-top: 0; font-weight: 600; font-size: 1.8rem; letter-spacing: -0.05em; }
+        h3 { margin: 0 0 10px 0; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;}
+        .hidden { display: none !important; }
+        
+        /* BOTÓN DE VOLVER (NAVEGACIÓN) */
+        .btn-back {
+            background: var(--bg-inner);
+            color: var(--text-main);
+            border: 1px solid var(--text-muted);
+            padding: 8px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: 0.2s;
+            margin-bottom: 15px;
+        }
+        .btn-back:hover { background: #475569; }
+
+        /* PANTALLA SELECCIÓN DE ROL */
+        .role-selector { text-align: center; padding: 50px 20px; }
+        .btn-choice { padding: 20px 40px; font-size: 1.2rem; font-weight: bold; margin: 15px; border: none; border-radius: 8px; cursor: pointer; color: white; transition: 0.2s; width: 250px;}
+        .btn-cuidador { background-color: var(--accent-blue); }
+        .btn-usuario { background-color: var(--bg-inner); border: 2px solid var(--accent-blue); color: var(--accent-blue); }
+        .btn-choice:hover { transform: translateY(-2px); opacity: 0.9; }
+
+        /* ESTILOS DEL PANEL DEL CUIDADOR */
+        .status { text-align: center; font-weight: 600; padding: 10px; border-radius: 6px; background: var(--accent-red); color: white; margin-bottom: 15px; font-size: 0.95rem; }
+        .connected { background: var(--accent-green); }
+        
+        /* Botón exclusivo para silenciar la alarma */
+        .btn-mute-style {
+            padding: 12px; 
+            font-size: 1rem; 
+            font-weight: 600; 
+            border: 2px solid var(--accent-red); 
+            border-radius: 6px; 
+            cursor: pointer; 
+            color: var(--accent-red); 
+            background-color: var(--bg-main);
+            width: 100%; 
+            max-width: 300px;
+            transition: 0.2s;
+        }
+
+        .main-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 25px; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
+        .data-box { background: var(--bg-inner); padding: 20px; border-radius: 8px; text-align: center; display: flex; flex-direction: column; justify-content: center; }
+        .data-box p { font-size: 2.5rem; font-weight: 700; margin: 5px 0 0 0; color: var(--accent-blue); }
+        .status-text { font-size: 1.3rem; font-weight: bold; margin-top: 10px; }
+        
+        .controls { background: var(--bg-inner); padding: 20px; border-radius: 8px; text-align: center; display: flex; flex-direction: column; justify-content: space-between; }
+        input[type=range] { width: 90%; accent-color: var(--accent-blue); cursor: pointer; margin-top: 10px; }
+        
+        .btn-sos { padding: 12px; font-size: 1rem; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; color: white; width: 100%; transition: 0.2s; }
+        .btn-off { background-color: var(--bg-main); border: 1px solid var(--accent-blue); color: var(--accent-blue); }
+        .btn-on { background-color: var(--accent-red); }
+
+        /* SECCIÓN INFERIOR: MAPA Y LOGS */
+        .bottom-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .panel-block { background: var(--bg-inner); padding: 20px; border-radius: 8px; height: 260px; display: flex; flex-direction: column; }
+        .log-container { flex-grow: 1; overflow-y: auto; background: var(--bg-main); padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.85rem; color: var(--text-muted); }
+        .log-entry { margin-bottom: 5px; border-bottom: 1px solid #1e293b; padding-bottom: 3px; }
+        .log-danger { color: var(--accent-red); font-weight: bold; }
+        #map { width: 100%; flex-grow: 1; border-radius: 6px; background: var(--bg-main); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="view-selector" class="role-selector">
+        <h1>Sistema de Asistencia Visual</h1>
+        <p style="color: var(--text-muted); margin-bottom: 30px;">Selecciona el modo de uso para este dispositivo:</p>
+        <button class="btn-choice btn-cuidador" onclick="iniciarRol('cuidador')">Modo Cuidador (PC)</button>
+        <button class="btn-choice btn-usuario" onclick="iniciarRol('usuario')">Modo Usuario (Celular)</button>
+    </div>
+
+    <div id="view-cuidador" class="hidden">
+        <button class="btn-back" onclick="regresarAlMenu()">⬅ Volver al Menú Principal</button>
+        <h1>Panel del Cuidador</h1>
+        
+        <div id="status" class="status">
+            <span id="status-text-panel">GAFAS FUERA DE LÍNEA 🔴</span>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 25px;">
+            <button id="btnMute" class="btn-mute-style" onclick="toggleSilencio()">
+                Silenciar Sonido de Alerta 🔊
+            </button>
+        </div>
+        
+        <div class="main-layout">
+            <div class="stats-grid">
+                <div class="data-box">
+                    <h3>Distancia</h3>
+                    <p><span id="txtDistancia">0</span><span style="font-size: 1.2rem; color:var(--text-muted)"> cm</span></p>
+                </div>
+                <div class="data-box">
+                    <h3>Batería Gafas</h3>
+                    <p><span id="txtBateria">--</span><span style="font-size: 1.2rem; color:var(--text-muted)"> %</span></p>
+                </div>
+                <div class="data-box">
+                    <h3>Entorno</h3>
+                    <div id="lblMotor" class="status-text" style="color: var(--accent-green);">SEGURO</div>
+                </div>
+                <div class="data-box" style="grid-column: span 3; padding: 10px 20px;">
+                    <canvas id="liveChart" style="max-height: 100px;"></canvas>
+                </div>
+            </div>
+
+            <div class="controls">
+                <div>
+                    <h3>Umbral de Alerta</h3>
+                    <input type="range" id="sliderUmbral" min="30" max="200" step="5" value="80">
+                    <p style="margin: 5px 0 0 0; font-size: 0.9rem;">Activo a: <span id="txtUmbral" style="color:var(--accent-blue); font-weight:bold;">80</span> cm</p>
+                </div>
+                <button id="btnVibrador" class="btn-sos btn-off">Forzar Alerta (SOS)</button>
+            </div>
+        </div>
+
+        <div class="bottom-layout">
+            <div class="panel-block">
+                <h3>Incidentes Críticos</h3>
+                <div class="log-container" id="logIncidentes">
+                    <div class="log-entry">Esperando reportes del sistema...</div>
+                </div>
+            </div>
+            <div class="panel-block">
+                <h3>Ubicación GPS del Paciente</h3>
+                <div id="map"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-usuario" class="hidden" style="text-align: center; padding: 20px 10px;">
+        <button class="btn-back" style="float: left;" onclick="regresarAlMenu()">⬅ Volver</button>
+        <div style="clear: both;"></div>
+        <h1 style="color: var(--accent-blue); margin-top: 20px;">Localizador Activo</h1>
+        <p style="color: var(--text-muted);">Mantén esta pantalla encendida dentro del bolsillo del usuario.</p>
+        <div id="status-gps" style="font-size: 1.3rem; font-weight: bold; margin-top: 40px; color: var(--accent-red);">Iniciando GPS... 🔄</div>
+        <p id="coords" style="font-family: monospace; color: var(--text-muted); margin-top: 20px; font-size: 1.1rem;"></p>
+    </div>
+</div>
+
+<script>
+    const brokerUrl = 'ws://broker.emqx.io:8083/mqtt';
+    const topicDistancia = 'sensor/ultrasonido/distancia';
+    const topicVibrador  = 'sensor/vibrador/control';
+    const topicUmbral    = 'sensor/ultrasonido/umbral';
+    const topicBateria   = 'sensor/bateria/porcentaje'; 
+    const topicGPS       = 'sensor/gps/coordenadas';
+    
+    let client = null;
+    let map = null;
+    let marcadorUsuario = null;
+    let chart = null;
+    let watchdogInterval = null;
+    let alarmaInterval = null;
+    let audioCtx = null;
+    let alarmaSilenciada = false;
+
+    function iniciarRol(rol) {
+        document.getElementById('view-selector').classList.add('hidden');
+        client = mqtt.connect(brokerUrl);
+
+        if (rol === 'cuidador') {
+            document.getElementById('view-cuidador').classList.remove('hidden');
+            configurarCuidador();
+        } else {
+            document.getElementById('view-usuario').classList.remove('hidden');
+            configurarUsuario();
+        }
+    }
+
+    function regresarAlMenu() {
+        if (client) { client.end(); client = null; }
+        if (watchdogInterval) { clearInterval(watchdogInterval); watchdogInterval = null; }
+        if (alarmaInterval) { clearInterval(alarmaInterval); alarmaInterval = null; }
+        if (map) { map.remove(); map = null; marcadorUsuario = null; }
+        if (chart) { chart.destroy(); chart = null; }
+
+        document.getElementById('view-cuidador').classList.add('hidden');
+        document.getElementById('view-usuario').classList.add('hidden');
+        document.getElementById('view-selector').classList.remove('hidden');
+        
+        alarmaSilenciada = false;
+        const btn = document.getElementById('btnMute');
+        btn.innerText = "Silenciar Sonido de Alerta 🔊";
+        btn.style.backgroundColor = "var(--bg-main)";
+        btn.style.borderColor = "var(--accent-red)";
+        btn.style.color = "var(--accent-red)";
+    }
+
+    function configurarCuidador() {
+        let vibradorManual = false;
+        let umbralActual = 80;
+        let ultimoMensajeTiempo = Date.now();
+
+        map = L.map('map').setView([4.5708, -74.2973], 5); 
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        marcadorUsuario = L.marker([4.5708, -74.2973]).addTo(map);
+
+        const ctx = document.getElementById('liveChart').getContext('2d');
+        chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [{ data: [], borderColor: '#0ea5e9', backgroundColor: 'rgba(14, 165, 233, 0.05)', borderWidth: 2, tension: 0.3, fill: true }] },
+            options: { plugins: { legend: false }, scales: { x: { display: false }, y: { beginAtZero: true, max: 200, grid: { color: '#334155' } } } }
+        });
+
+        function reproducirPitido() {
+            if (alarmaSilenciada) return; 
+            if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            let osc = audioCtx.createOscillator(); let gain = audioCtx.createGain();
+            osc.type = "sine"; osc.frequency.value = 880; gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        function activarAlarmaSonora(activar) {
+            if (activar && !alarmaInterval) {
+                alarmaInterval = setInterval(reproducirPitido, 1000);
+            } else if (!activar && alarmaInterval) {
+                clearInterval(alarmaInterval); 
+                alarmaInterval = null; 
+            }
+        }
+
+        client.on('connect', () => {
+            document.getElementById('status-text-panel').innerText = "SISTEMA EN LÍNEA 🟢";
+            document.getElementById('status').className = "status connected";
+            activarAlarmaSonora(false);
+            client.subscribe(topicDistancia);
+            client.subscribe(topicBateria);
+            client.subscribe(topicGPS);
+        });
+
+        document.getElementById('sliderUmbral').addEventListener('input', (e) => {
+            document.getElementById('txtUmbral').innerText = e.target.value;
+            umbralActual = e.target.value;
+            client.publish(topicUmbral, e.target.value.toString());
+        });
+
+        client.on('message', (topic, message) => {
+            const hora = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+            if (topic === topicDistancia) {
+                ultimoMensajeTiempo = Date.now(); 
+                const val = parseFloat(message.toString());
+                document.getElementById('txtDistancia').innerText = val;
+
+                let lbl = document.getElementById('lblMotor');
+                if (val > 0 && val <= 15) {
+                    lbl.innerText = "PELIGRO CRÍTICO"; lbl.style.color = "var(--accent-red)";
+                    let entrada = document.createElement('div'); entrada.className = "log-entry log-danger";
+                    entrada.innerText = `[${hora}] Alerta: Obstáculo a ${val} cm.`; 
+                    document.getElementById('logIncidentes').prepend(entrada);
+                } else if (val > 15 && val <= umbralActual) {
+                    lbl.innerText = "ADVERTENCIA"; lbl.style.color = "var(--text-main)";
+                } else {
+                    lbl.innerText = "SEGURO"; lbl.style.color = "var(--accent-green)";
+                }
+
+                chart.data.labels.push(hora); chart.data.datasets[0].data.push(val);
+                if (chart.data.labels.length > 15) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
+                chart.update();
+            }
+
+            if (topic === topicBateria) {
+                document.getElementById('txtBateria').innerText = message.toString();
+            }
+
+            if (topic === topicGPS) {
+                const coordenadas = JSON.parse(message.toString());
+                if (marcadorUsuario && map) {
+                    marcadorUsuario.setLatLng([coordenadas.lat, coordenadas.lng]);
+                    map.setView([coordenadas.lat, coordenadas.lng], 16);
+                }
+            }
+        });
+
+        document.getElementById('btnVibrador').addEventListener('click', () => {
+            vibradorManual = !vibradorManual;
+            client.publish(topicVibrador, vibradorManual ? "ON" : "OFF");
+            document.getElementById('btnVibrador').innerText = vibradorManual ? "Detener Alerta" : "Forzar Alerta (SOS)";
+            document.getElementById('btnVibrador').className = vibradorManual ? "btn-sos btn-on" : "btn-sos btn-off";
+        });
+
+        watchdogInterval = setInterval(() => {
+            if (Date.now() - ultimoMensajeTiempo > 7000) {
+                document.getElementById('status-text-panel').innerText = "ALERTA: DISPOSITIVO DESCONECTADO 🔴";
+                document.getElementById('status').className = "status";
+                document.getElementById('lblMotor').innerText = "DESCONOCIDO";
+                document.getElementById('lblMotor').style.color = "var(--text-muted)";
+                activarAlarmaSonora(true);
+            }
+        }, 2000);
+    }
+
+    function toggleSilencio() {
+        alarmaSilenciada = !alarmaSilenciada;
+        const btn = document.getElementById('btnMute');
+        if (alarmaSilenciada) {
+            btn.innerText = "Alarma Silenciada 🔇";
+            btn.style.backgroundColor = "var(--bg-inner)";
+            btn.style.borderColor = "var(--text-muted)";
+            btn.style.color = "var(--text-muted)";
+        } else {
+            btn.innerText = "Silenciar Sonido de Alerta 🔊";
+            btn.style.backgroundColor = "var(--bg-main)";
+            btn.style.borderColor = "var(--accent-red)";
+            btn.style.color = "var(--accent-red)";
+        }
+    }
+
+    function configurarUsuario() {
+        const statusGps = document.getElementById('status-gps');
+        const coordsDiv = document.getElementById('coords');
+
+        client.on('connect', () => {
+            statusGps.innerText = "Conectado. Buscando satélites... 📡";
+            
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(
+                    (position) => {
+                        const lat = position.coords.latitude;
+                        const lng = position.coords.longitude;
+                        statusGps.innerText = "Transmitiendo Ubicación en Vivo 🟢";
+                        statusGps.style.color = "var(--accent-green)";
+                        coordsDiv.innerText = `Lat: ${lat.toFixed(5)} | Lng: ${lng.toFixed(5)}`;
+                        
+                        if (client && client.connected) {
+                            client.publish(topicGPS, JSON.stringify({ lat: lat, lng: lng }));
+                        }
+                    },
+                    () => { 
+                        statusGps.innerText = "Error: Activa el GPS del móvil y acepta los permisos ❌"; 
+                        statusGps.style.color = "var(--accent-red)"; 
+                    },
+                    { enableHighAccuracy: true }
+                );
+            } else {
+                statusGps.innerText = "Este celular no soporta GPS ❌";
+            }
+        });
+    }
+</script>
+</body>
+</html>
