@@ -186,7 +186,8 @@
 </div>
 
 <script>
-    const brokerUrl = 'ws://broker.emqx.io:8083/mqtt';
+    // CORREGIDO: URL segura con wss:// y puerto 8084 para que GitHub Pages lo acepte sin bloqueos
+    const brokerUrl = 'wss://broker.emqx.io:8084/mqtt';
     const topicDistancia = 'sensor/ultrasonido/distancia';
     const topicVibrador  = 'sensor/vibrador/control';
     const topicUmbral    = 'sensor/ultrasonido/umbral';
